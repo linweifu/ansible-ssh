@@ -1,0 +1,64 @@
+#!/bin/sh
+debug=/bin/false
+if [ $# -eq 0 ]; then
+  echo "Usage: $(basename $0) <scp arguments> hostname:<path> destpath"
+  exit 1
+fi
+nargs=() hindex=0 host=""
+for (( i = 1; i <=$#; ++i )); do
+  nargs[$i]=$(eval echo '$'"${i}")
+  echo ${nargs[$i]} | grep ":"
+  if [ $? -eq 0 ] ; then
+    hindex=${i}
+  fi
+done
+#获取冒号前面的参数为host名称，后面的为路径
+if [ $hindex -gt 0 ]; then
+  host=$(echo "${nargs[$hindex]}"| cut -d : -f 1)
+fi
+[ -z "${host}" ] && { echo "ERROR: hostname is empty!"; exit 1; }
+
+for program in ansible-config ansible-inventory; do
+  which "$program" > /dev/null || { echo "ERROR: not found: $program"; exit 1; }
+done
+
+# too slow mybe remove
+#ssh_args=$(ansible-config dump | grep '^ANSIBLE_SSH_ARGS' | cut -d'=' -f2-)
+#$debug && echo "ssh_args: $ssh_args"
+#inventory=$(ansible-inventory --list)
+hostvars=$(ansible-inventory -y --host=${host} 2>/dev/null)
+if [ $? -ne 0 ] ; then
+  echo "ERROR: Host ${host} not found!"
+  echo "You can exec \"ansible-inventory --list |grep -A 5 ${host}\" to checking inventory config."
+  exit 1;
+fi
+ansible_host=${host}
+#check host format
+echo "${host}" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"
+if [ $? -ne 0 ] ; then
+  ansible_host=$(ansible-inventory --graph ${host} | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+") 
+  nargs[$hindex]=$(echo "${nargs[$hindex]/${host}/${ansible_host}}")
+fi
+
+$debug && echo "ansible_host: $ansible_host"
+
+ansible_port=$(echo $(echo "${hostvars}" | grep -E "^(ansible_port|ansible_ssh_port).*$" | cut -d ':' -f 2))
+ansible_user=$(echo $(echo "${hostvars}" | grep -E "^(ansible_user|ansible_ssh_user).*$" | cut -d ':' -f 2))
+ansible_ssh_common_args=$(echo $(echo "${hostvars}" | grep -E "^ansible_ssh_common_args.*$" | cut -d ':' -f 2))
+ansible_ssh_private_key_file=$(echo $(echo "${hostvars}" | grep -E "^ansible_ssh_private_key_file.*$" | cut -d ':' -f 2))
+
+$debug && echo "ansible_user: $ansible_user"
+$debug && echo "ansible_port: $ansible_port"
+$debug && echo "ansible_ssh_common_args: $ansible_ssh_common_args"
+
+# We need to prepend hostname with username@
+if [ -n "$ansible_user" ]; then ansible_user="-o User=${ansible_user}"; fi
+
+# If port is set, add it to ssh arguments
+if [ -n "$ansible_port" ]; then ssh_args="$ssh_args -P $ansible_port"; fi
+
+# If identity_file is set, add it to scp arguments
+if [ -n "$ansible_ssh_private_key_file" ]; then ssh_args="$ssh_args -i $ansible_ssh_private_key_file"; fi
+
+$debug && echo result command: scp ${ansible_user}$ ${ssh_args} ${ansible_ssh_common_args} ${nargs[@]}
+exec scp ${ansible_user} ${ssh_args} ${ansible_ssh_common_args} ${nargs[@]}
