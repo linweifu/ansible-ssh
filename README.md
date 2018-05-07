@@ -17,7 +17,7 @@ server1 ansible_host=192.168.0.1 ansible_user=ubuntu ansible_port=2222
 user@work$ cat ansible.cfg | grep ssh_args
 ssh_args = -C -o ControlMaster=auto -o ControlPersist=60s
 
-user@work$ ssh-ansible server1
+user@work$ ./ssh-ansible server1
 ssh_args:  -C -o ControlMaster=auto -o ControlPersist=60s
 ansible_host: 192.168.0.1
 ansible_user: ubuntu
