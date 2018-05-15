@@ -4,11 +4,15 @@ if [ $# -eq 0 ]; then
   echo "Usage: $(basename $0) <scp arguments> hostname:<path> destpath"
   exit 1
 fi
+
+if [ "$1"x = "--show"x ]; then ansible-inventory --graph;exit 0; fi
+
 nargs=() hindex=0 host=""
-for (( i = 1; i <=$#; ++i )); do
+for (( i = 1; i <=$#; ++i ));  
+do
   nargs[$i]=$(eval echo '$'"${i}")
-  echo ${nargs[$i]} | grep ":"
-  if [ $? -eq 0 ] ; then
+  # check format
+  if [[ "${nargs[$i]}" =~ ":" ]] ; then
     hindex=${i}
   fi
 done
@@ -16,15 +20,17 @@ done
 if [ $hindex -gt 0 ]; then
   host=$(echo "${nargs[$hindex]}"| cut -d : -f 1)
 fi
+#echo ${host}
+
 [ -z "${host}" ] && { echo "ERROR: hostname is empty!"; exit 1; }
 
 for program in ansible-config ansible-inventory; do
   which "$program" > /dev/null || { echo "ERROR: not found: $program"; exit 1; }
 done
-
 # too slow mybe remove
 #ssh_args=$(ansible-config dump | grep '^ANSIBLE_SSH_ARGS' | cut -d'=' -f2-)
 #$debug && echo "ssh_args: $ssh_args"
+
 #inventory=$(ansible-inventory --list)
 hostvars=$(ansible-inventory -y --host=${host} 2>/dev/null)
 if [ $? -ne 0 ] ; then
@@ -56,9 +62,18 @@ if [ -n "$ansible_user" ]; then ansible_user="-o User=${ansible_user}"; fi
 
 # If port is set, add it to ssh arguments
 if [ -n "$ansible_port" ]; then ssh_args="$ssh_args -P $ansible_port"; fi
-
-# If identity_file is set, add it to scp arguments
-if [ -n "$ansible_ssh_private_key_file" ]; then ssh_args="$ssh_args -i $ansible_ssh_private_key_file"; fi
-
+# If SSH-Agent running,ignore ansible_ssh_private_key_file arguments.
+if [ -z "$SSH_AUTH_SOCK" ] ; then
+  # If identity_file is set, add it to ssh arguments
+  if [ -n "$ansible_ssh_private_key_file" ]; then sh_args="$ssh_args -i $ansible_ssh_private_key_file"; fi
+fi
 $debug && echo result command: scp ${ansible_user}$ ${ssh_args} ${ansible_ssh_common_args} ${nargs[@]}
 exec scp ${ansible_user} ${ssh_args} ${ansible_ssh_common_args} ${nargs[@]}
+if [ $? -ne 0 ]; then 
+# If SSH-Agent running,ignore ansible_ssh_private_key_file arguments.
+  if [ -n "$SSH_AUTH_SOCK" ] ; then
+    $debug || echo result command: scp ${ansible_user}$ ${ssh_args} ${ansible_ssh_common_args} ${nargs[@]}
+    # If identity_file is set, add it to ssh arguments
+    echo "If ssh auth faild, try exec \"ssh-add $ansible_ssh_private_key_file\""
+  fi
+fi

@@ -1,10 +1,9 @@
 #!/bin/sh
 debug=/bin/false
 
-if [ $# -eq 0 ]; then
-  echo "Usage: $(basename $0) hostname <ssh arguments>"
-  exit 1
-fi
+if [ $# -eq 0 ]; then echo "Usage: $(basename $0) hostname <ssh arguments>"; exit 1; fi
+
+if [ "$1"x = "--show"x ]; then ansible-inventory --graph;exit 0; fi
 
 host="$1"
 # All other arguments are ssh arguments
@@ -24,15 +23,8 @@ if [ $? -ne 0 ] ; then
   echo "You can exec \"ansible-inventory --list |grep -A 5 ${host}\" to checking inventory config."
   exit 1;
 fi
-ansible_host=${host}
-#check host format
-echo "${host}" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"
-if [ $? -ne 0 ] ; then
-  ansible_host=$(ansible-inventory --graph ${host} | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+") 
-fi
-
-
-
+ansible_host=$(ansible-inventory --graph ${host} 2>/dev/null | sed -n "s/^ *|--//pg")
+ansible_host=${ansible_host:-$host}
 $debug && echo "ansible_host: $ansible_host"
 
 ansible_port=$(echo $(echo "${hostvars}" | grep -E "^(ansible_port|ansible_ssh_port).*$" | cut -d ':' -f 2))
@@ -58,8 +50,18 @@ if [ -n "$ansible_user" ]; then ansible_user="${ansible_user}@"; fi
 # If port is set, add it to ssh arguments
 if [ -n "$ansible_port" ]; then ssh_args="$ssh_args -p $ansible_port"; fi
 
-# If identity_file is set, add it to ssh arguments
-if [ -n "$ansible_ssh_private_key_file" ]; then ssh_args="$ssh_args -i $ansible_ssh_private_key_file"; fi
-
+# If SSH-Agent running,ignore ansible_ssh_private_key_file arguments.
+if [ -z "$SSH_AUTH_SOCK" ] ; then
+  # If identity_file is set, add it to ssh arguments
+  if [ -n "$ansible_ssh_private_key_file" ]; then sh_args="$ssh_args -i $ansible_ssh_private_key_file"; fi
+fi
 $debug && echo result command: ssh ${ansible_user}${ansible_host} ${ssh_args} ${ansible_ssh_common_args} $@
 exec ssh ${ansible_user}${ansible_host} ${ssh_args} ${ansible_ssh_common_args} $@
+if [ $? -ne 0 ]; then 
+# If SSH-Agent running,ignore ansible_ssh_private_key_file arguments.
+  if [ -n "$SSH_AUTH_SOCK" ] ; then
+    $debug || echo result command: ssh ${ansible_user}${ansible_host} ${ssh_args} ${ansible_ssh_common_args} $@
+    # If identity_file is set, add it to ssh arguments
+    echo "If ssh auth faild, try exec \"ssh-add $ansible_ssh_private_key_file\""
+  fi
+fi
